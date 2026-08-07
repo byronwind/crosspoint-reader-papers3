@@ -67,9 +67,13 @@ struct FilePathResult {
   std::string path;
 };
 
+struct TxtOffsetResult {
+  uint32_t sourceOffset = 0;
+};
+
 using ResultVariant =
     std::variant<std::monostate, WifiResult, KeyboardResult, MenuResult, ChapterResult, PercentResult, IntervalResult,
-                 PageResult, ProgressChangeResult, NetworkModeResult, FootnoteResult, FilePathResult>;
+                 PageResult, ProgressChangeResult, NetworkModeResult, FootnoteResult, FilePathResult, TxtOffsetResult>;
 
 struct ActivityResult {
   bool isCancelled = false;

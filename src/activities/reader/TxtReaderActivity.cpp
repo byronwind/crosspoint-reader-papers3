@@ -8,20 +8,27 @@
 #include <Serialization.h>
 #include <Utf8.h>
 
+#include <algorithm>
+
 #include "CrossPointSettings.h"
 #include "CrossPointState.h"
 #include "MappedInputManager.h"
 #include "ProgressFile.h"
 #include "ReaderUtils.h"
 #include "RecentBooksStore.h"
+#include "TxtReaderChapterSelectionActivity.h"
 #include "components/UITheme.h"
 #include "fontIds.h"
 
 namespace {
 constexpr size_t CHUNK_SIZE = 8 * 1024;  // 8KB chunk for reading
+// GBK chunks are read shorter because transcodeGbkInPlace() appends the UTF-8
+// result behind the raw bytes in the same buffer: raw + utf8 (worst case 3/2x
+// expansion) must fit within CHUNK_SIZE + 1.
+constexpr size_t GBK_RAW_CHUNK_SIZE = CHUNK_SIZE * 2 / 5;
 // Cache file magic and version
 constexpr uint32_t CACHE_MAGIC = 0x54585449;  // "TXTI"
-constexpr uint8_t CACHE_VERSION = 3;          // Increment when cache format changes
+constexpr uint8_t CACHE_VERSION = 4;          // Increment when cache format changes
 }  // namespace
 
 void TxtReaderActivity::onEnter() {
@@ -60,6 +67,11 @@ void TxtReaderActivity::onExit() {
 }
 
 void TxtReaderActivity::loop() {
+  if (mappedInput.wasReleased(MappedInputManager::Button::Confirm) || ReaderUtils::isTouchMenuGesture(mappedInput)) {
+    openChapterSelection();
+    return;
+  }
+
   if (ReaderUtils::handleBackNavigation(mappedInput, activityManager, txt ? txt->getPath().c_str() : "",
                                         {this, [](void* ctx) { static_cast<TxtReaderActivity*>(ctx)->onGoHome(); }})) {
     return;
@@ -84,6 +96,64 @@ void TxtReaderActivity::loop() {
       onGoHome();
     }
   }
+}
+
+void TxtReaderActivity::openChapterSelection() {
+  if (!txt) {
+    return;
+  }
+  if (!initialized) {
+    initializeReader();
+  }
+  if (pageOffsets.empty()) {
+    return;
+  }
+
+  uint32_t chapterCount = 0;
+  bool hasCachedIndex = false;
+  {
+    HalFile chapterFile;
+    hasCachedIndex = txt->openChapterIndex(chapterFile, textEncoding, chapterCount);
+  }
+  if (!hasCachedIndex) {
+    auto* scratch = static_cast<uint8_t*>(malloc(CHUNK_SIZE + 1));
+    if (!scratch) {
+      return;
+    }
+    const auto& popupMetrics = UITheme::getInstance().getMetrics();
+    const auto popupStyle = popupMetrics.popupTextBold ? EpdFontFamily::BOLD : EpdFontFamily::REGULAR;
+    RenderLock lock(*this);
+    renderer.prewarmText(UI_12_FONT_ID, tr(STR_INDEXING), popupStyle);
+    renderer.prewarmText(UI_12_FONT_ID, tr(STR_INDEX_FAILED), popupStyle);
+    GUI.drawPopup(renderer, tr(STR_INDEXING));
+    pagesUntilFullRefresh = 1;
+    const bool built = txt->buildChapterIndex(textEncoding, scratch, CHUNK_SIZE + 1, chapterCount);
+    free(scratch);
+    if (!built) {
+      LOG_ERR("TRS", "Failed to build TXT chapter index");
+      renderer.clearScreen();
+      GUI.drawPopup(renderer, tr(STR_INDEX_FAILED));
+      return;
+    }
+  }
+
+  const uint32_t currentOffset = static_cast<uint32_t>(pageOffsets[currentPage]);
+  startActivityForResult(
+      std::make_unique<TxtReaderChapterSelectionActivity>(renderer, mappedInput, *txt, currentOffset),
+      [this](const ActivityResult& result) {
+        const auto* selected = std::get_if<TxtOffsetResult>(&result.data);
+        if (result.isCancelled || !selected) {
+          requestUpdate();
+          return;
+        }
+        // The full page index is always available here, so the chapter offset
+        // maps straight to a page via binary search (no lazy-index Direct mode
+        // like upstream CrossMux needs).
+        const auto nextPage =
+            std::upper_bound(pageOffsets.begin(), pageOffsets.end(), static_cast<size_t>(selected->sourceOffset));
+        currentPage = nextPage == pageOffsets.begin() ? 0 : static_cast<int>(nextPage - pageOffsets.begin() - 1);
+        requestUpdate();
+      });
 }
 
 void TxtReaderActivity::initializeReader() {
@@ -114,10 +184,21 @@ void TxtReaderActivity::initializeReader() {
 
   LOG_DBG("TRS", "Viewport: %dx%d, lines per page: %d", viewportWidth, viewportHeight, linesPerPage);
 
+  // Detect source encoding before indexing: GBK files need transcoding and
+  // paginate differently than a raw UTF-8 parse of the same bytes.
+  probeTextEncoding();
+
   // Try to load cached page index first
   if (!loadPageIndexCache()) {
     // Cache not found, build page index
     buildPageIndex();
+    // Pure-ASCII prefixes defer detection until a non-ASCII byte shows up mid
+    // build; if the file turned out to be GBK, pages indexed before detection
+    // parsed raw GBK bytes as UTF-8 garbage - rebuild once with transcoding.
+    if (textEncoding == txt_encoding::Encoding::Gbk) {
+      LOG_DBG("TRS", "GBK detected during first index pass, rebuilding");
+      buildPageIndex();
+    }
     // Save to cache for next time
     savePageIndexCache();
   }
@@ -126,6 +207,23 @@ void TxtReaderActivity::initializeReader() {
   loadProgress();
 
   initialized = true;
+}
+
+void TxtReaderActivity::probeTextEncoding() {
+  const size_t fileSize = txt->getFileSize();
+  if (fileSize == 0) {
+    return;
+  }
+  const size_t sampleLength = std::min(CHUNK_SIZE, fileSize);
+  auto* sample = static_cast<uint8_t*>(malloc(sampleLength));
+  if (!sample) {
+    return;
+  }
+  if (txt->readContent(sample, 0, sampleLength)) {
+    textEncoding = txt_encoding::detect(sample, sampleLength, sampleLength == fileSize);
+    LOG_DBG("TRS", "TXT encoding probe: %u", static_cast<unsigned>(textEncoding));
+  }
+  free(sample);
 }
 
 void TxtReaderActivity::buildPageIndex() {
@@ -137,7 +235,13 @@ void TxtReaderActivity::buildPageIndex() {
 
   LOG_DBG("TRS", "Building page index for %zu bytes...", fileSize);
 
-  GUI.drawPopup(renderer, tr(STR_INDEXING));
+  // Prewarm the popup glyphs before drawPopup(): the message is CJK on SD-card
+  // fonts and drawPopup() measures + draws it while holding the render lock.
+  const auto& popupMetrics = UITheme::getInstance().getMetrics();
+  const auto popupStyle = popupMetrics.popupTextBold ? EpdFontFamily::BOLD : EpdFontFamily::REGULAR;
+  const char* indexingText = tr(STR_INDEXING);
+  renderer.prewarmText(UI_12_FONT_ID, indexingText, popupStyle);
+  GUI.drawPopup(renderer, indexingText);
 
   while (offset < fileSize) {
     std::vector<std::string> tempLines;
@@ -175,11 +279,13 @@ bool TxtReaderActivity::loadPageAtOffset(size_t offset, std::vector<std::string>
     return false;
   }
 
-  // Read a chunk from file
-  size_t chunkSize = std::min(CHUNK_SIZE, fileSize - offset);
-  auto* buffer = static_cast<uint8_t*>(malloc(chunkSize + 1));
+  // Read a chunk from file (GBK reads a shorter raw chunk, see GBK_RAW_CHUNK_SIZE)
+  const bool isGbk = (textEncoding == txt_encoding::Encoding::Gbk);
+  const size_t readLimit = isGbk ? GBK_RAW_CHUNK_SIZE : CHUNK_SIZE;
+  size_t chunkSize = std::min(readLimit, fileSize - offset);
+  auto* buffer = static_cast<uint8_t*>(malloc(CHUNK_SIZE + 1));
   if (!buffer) {
-    LOG_ERR("TRS", "Failed to allocate %zu bytes", chunkSize);
+    LOG_ERR("TRS", "Failed to allocate %zu bytes", CHUNK_SIZE + 1);
     return false;
   }
 
@@ -187,7 +293,31 @@ bool TxtReaderActivity::loadPageAtOffset(size_t offset, std::vector<std::string>
     free(buffer);
     return false;
   }
-  buffer[chunkSize] = '\0';
+  const bool isLastChunk = (offset + chunkSize == fileSize);
+
+  // Deferred detection: pure-ASCII prefixes are ambiguous between UTF-8 and
+  // GBK, so the probe at reader init may have returned Unknown.
+  if (textEncoding == txt_encoding::Encoding::Unknown) {
+    const auto detected = txt_encoding::detect(buffer, chunkSize, isLastChunk);
+    if (detected != txt_encoding::Encoding::Unknown) {
+      textEncoding = detected;
+      LOG_DBG("TRS", "TXT encoding detected late: %u at offset %zu", static_cast<unsigned>(detected), offset);
+    }
+  }
+
+  if (textEncoding == txt_encoding::Encoding::Gbk) {
+    // Transcode in place: the UTF-8 result lands at the buffer start and the
+    // parser below works on UTF-8. chunkSize becomes the UTF-8 length while
+    // page offsets stay raw file offsets (mapped back via gbkSourceLength).
+    const auto result = txt_encoding::transcodeGbkInPlace(buffer, chunkSize, CHUNK_SIZE + 1, isLastChunk);
+    if (result.rawLength == 0 || result.utf8Length == 0) {
+      free(buffer);
+      return false;
+    }
+    chunkSize = result.utf8Length;
+  } else {
+    buffer[chunkSize] = '\0';
+  }
 
   // Prime the SD card font's advance table with this chunk's codepoints.
   // Without this, every getTextAdvanceX() call in the wrap loop below triggers
@@ -210,8 +340,9 @@ bool TxtReaderActivity::loadPageAtOffset(size_t offset, std::vector<std::string>
       lineEnd++;
     }
 
-    // Check if we have a complete line
-    bool lineComplete = (lineEnd < chunkSize) || (offset + lineEnd >= fileSize);
+    // Check if we have a complete line (isLastChunk is evaluated in raw file
+    // space, so it is correct for both UTF-8 and transcoded GBK buffers)
+    bool lineComplete = (lineEnd < chunkSize) || isLastChunk;
 
     if (!lineComplete && static_cast<int>(outLines.size()) > 0) {
       // Incomplete line and we already have some lines, stop here
@@ -248,21 +379,40 @@ bool TxtReaderActivity::loadPageAtOffset(size_t offset, std::vector<std::string>
         break;
       }
 
-      // Find break point
-      size_t breakPos = line.length();
-      while (breakPos > 0 && renderer.getTextAdvanceX(cachedFontId, line.substr(0, breakPos).c_str(),
-                                                      EpdFontFamily::REGULAR) > viewportWidth) {
-        // Try to break at space
-        size_t spacePos = line.rfind(' ', breakPos - 1);
+      // Find break point by binary-searching the largest char-boundary prefix
+      // whose width fits, then preferring the last space within it (same result
+      // as the previous linear scan, which decremented one char at a time and
+      // re-measured the whole prefix per step — O(n^2) per line. Space-less CJK
+      // text always hit that path and stalled index building for minutes).
+      std::vector<size_t> boundaries;
+      boundaries.push_back(0);
+      for (size_t i = 0; i < line.length();) {
+        i++;
+        while (i < line.length() && (line[i] & 0xC0) == 0x80) {
+          i++;  // skip UTF-8 continuation bytes
+        }
+        boundaries.push_back(i);
+      }
+      size_t lo = 0, hi = boundaries.size() - 1, fitIdx = 0;
+      while (lo <= hi) {
+        const size_t mid = lo + (hi - lo) / 2;
+        const int w = renderer.getTextAdvanceX(cachedFontId, line.substr(0, boundaries[mid]).c_str(),
+                                               EpdFontFamily::REGULAR);
+        if (w <= viewportWidth) {
+          fitIdx = mid;
+          if (mid >= boundaries.size() - 1) break;
+          lo = mid + 1;
+        } else {
+          if (mid == 0) break;
+          hi = mid - 1;
+        }
+      }
+      size_t breakPos = boundaries[fitIdx];
+      if (breakPos > 0) {
+        // Try to break at the last space within the fitting prefix
+        const size_t spacePos = line.rfind(' ', breakPos - 1);
         if (spacePos != std::string::npos && spacePos > 0) {
           breakPos = spacePos;
-        } else {
-          // Break at character boundary for UTF-8
-          breakPos--;
-          // Make sure we don't break in the middle of a UTF-8 sequence
-          while (breakPos > 0 && (line[breakPos] & 0xC0) == 0x80) {
-            breakPos--;
-          }
         }
       }
 
@@ -299,7 +449,11 @@ bool TxtReaderActivity::loadPageAtOffset(size_t offset, std::vector<std::string>
     pos = 1;
   }
 
-  nextOffset = offset + pos;
+  // pos is a UTF-8 buffer position; map it back to raw GBK bytes so page
+  // offsets always index the source file as stored on disk.
+  const size_t consumed =
+      textEncoding == txt_encoding::Encoding::Gbk ? txt_encoding::gbkSourceLength(buffer, pos) : pos;
+  nextOffset = offset + consumed;
 
   // Make sure we don't go past the file
   if (nextOffset > fileSize) {
@@ -454,6 +608,7 @@ bool TxtReaderActivity::loadPageIndexCache() {
   // - int32_t: font ID (to invalidate cache on font change)
   // - int32_t: screen margin (to invalidate cache on margin change)
   // - uint8_t: paragraph alignment (to invalidate cache on alignment change)
+  // - uint8_t: source text encoding (to invalidate cache on encoding change)
   // - uint32_t: total pages count
   // - N * uint32_t: page offsets
 
@@ -521,6 +676,24 @@ bool TxtReaderActivity::loadPageIndexCache() {
     return false;
   }
 
+  uint8_t encodingValue;
+  serialization::readPod(f, encodingValue);
+  if (!txt_encoding::isSerializedValueValid(encodingValue)) {
+    LOG_DBG("TRS", "Cache encoding value invalid, rebuilding");
+    return false;
+  }
+  const auto cachedEncoding = static_cast<txt_encoding::Encoding>(encodingValue);
+  if (textEncoding != txt_encoding::Encoding::Unknown && cachedEncoding != textEncoding) {
+    LOG_DBG("TRS", "Cache encoding mismatch (%u != %u), rebuilding", static_cast<unsigned>(cachedEncoding),
+            static_cast<unsigned>(textEncoding));
+    return false;
+  }
+  // Pure-ASCII files probe as Unknown; adopt the cached encoding so GBK files
+  // with an ASCII prefix still transcode from the first chunk.
+  if (textEncoding == txt_encoding::Encoding::Unknown) {
+    textEncoding = cachedEncoding;
+  }
+
   uint32_t numPages;
   serialization::readPod(f, numPages);
 
@@ -556,6 +729,7 @@ void TxtReaderActivity::savePageIndexCache() const {
   serialization::writePod(f, static_cast<int32_t>(cachedFontId));
   serialization::writePod(f, static_cast<int32_t>(cachedScreenMargin));
   serialization::writePod(f, cachedParagraphAlignment);
+  serialization::writePod(f, static_cast<uint8_t>(textEncoding));
   serialization::writePod(f, static_cast<uint32_t>(pageOffsets.size()));
 
   // Write page offsets

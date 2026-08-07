@@ -1,6 +1,7 @@
 #pragma once
 
 #include <Txt.h>
+#include <TxtEncoding.h>
 
 #include <vector>
 
@@ -30,10 +31,17 @@ class TxtReaderActivity final : public Activity {
   int cachedOrientedMarginBottom = 0;
   int cachedOrientedMarginLeft = 0;
 
+  // Source text encoding. Files whose prefix is pure ASCII stay Unknown until
+  // a non-ASCII byte shows up (see loadPageAtOffset), since ASCII is shared by
+  // UTF-8 and GBK. Page offsets are raw file offsets in both encodings.
+  txt_encoding::Encoding textEncoding = txt_encoding::Encoding::Unknown;
+
   void renderPage();
   void renderStatusBar() const;
 
   void initializeReader();
+  void probeTextEncoding();
+  void openChapterSelection();
   bool loadPageAtOffset(size_t offset, std::vector<std::string>& outLines, size_t& nextOffset);
   void buildPageIndex();
   bool loadPageIndexCache();
