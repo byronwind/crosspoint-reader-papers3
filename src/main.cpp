@@ -28,7 +28,9 @@
 #include "SdCardFontSystem.h"
 #include "activities/Activity.h"
 #include "activities/ActivityManager.h"
+#ifndef SIMULATOR
 #include "activities/settings/SdFirmwareUpdateActivity.h"
+#endif
 #include "components/UITheme.h"
 #include "fontIds.h"
 #include "images/LoadingIcon.h"
@@ -409,11 +411,16 @@ void setup() {
       break;
   }
 
+#ifdef SIMULATOR
+  // No SD/OTA firmware update path in the desktop simulator.
+  if (HalSystem::isRebootFromPanic()) {
+#else
   if (recoveryFirmwareMode) {
     // Skip normal home/reader routing: jump straight into the SD firmware picker.
     activityManager.replaceActivity(
         std::make_unique<SdFirmwareUpdateActivity>(renderer, mappedInputManager, /*recoveryMode=*/true));
   } else if (HalSystem::isRebootFromPanic()) {
+#endif
     // If we rebooted from a panic, go to crash report screen to show the panic info
     activityManager.goToCrashReport();
   } else if (resume == BootResume::Silent && snapshotTarget == SILENT_REBOOT_TARGET_READER &&
