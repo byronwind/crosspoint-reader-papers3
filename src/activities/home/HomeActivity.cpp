@@ -56,6 +56,12 @@ void HomeActivity::loadRecentCovers(int coverHeight) {
   bool showingLoading = false;
   Rect popupRect;
 
+  // Prewarm the loading-popup CJK glyphs once up front so drawPopup() never
+  // triggers on-demand SD reads inside the render lock.
+  const auto popupStyle =
+      UITheme::getInstance().getMetrics().popupTextBold ? EpdFontFamily::BOLD : EpdFontFamily::REGULAR;
+  renderer.prewarmText(UI_12_FONT_ID, tr(STR_LOADING_POPUP), popupStyle);
+
   int progress = 0;
   for (RecentBook& book : recentBooks) {
     if (!book.coverBmpPath.empty()) {
@@ -284,20 +290,8 @@ void HomeActivity::render(RenderLock&&) {
   renderer.clearScreen();
   bool bufferRestored = coverBufferStored && restoreCoverBuffer();
 
-  GUI.drawHeader(renderer, Rect{0, metrics.topPadding, pageWidth, metrics.homeTopPadding},
-                 metrics.homeContinueReadingInMenu && !recentBooks.empty() ? recentBooks[0].title.c_str() : nullptr);
-
-  // Record the tile rect so storeCoverBuffer (called from the theme) knows
-  // which sub-region of the framebuffer to snapshot. ~16 KB in Portrait
-  // instead of the 48 KB full framebuffer the previous bind captured.
-  coverRectX = 0;
-  coverRectY = metrics.homeTopPadding;
-  coverRectW = pageWidth;
-  coverRectH = metrics.homeCoverTileHeight;
-
-  GUI.drawRecentBookCover(renderer, Rect{0, metrics.homeTopPadding, pageWidth, metrics.homeCoverTileHeight},
-                          recentBooks, selectorIndex, coverRendered, coverBufferStored, bufferRestored,
-                          std::bind(&HomeActivity::storeCoverBuffer, this));
+  const char* headerTitle =
+      metrics.homeContinueReadingInMenu && !recentBooks.empty() ? recentBooks[0].title.c_str() : nullptr;
 
   // Build menu items dynamically
   std::vector<const char*> menuItems = {tr(STR_BROWSE_FILES), tr(STR_MENU_RECENT_BOOKS), tr(STR_FILE_TRANSFER),
@@ -314,6 +308,31 @@ void HomeActivity::render(RenderLock&&) {
     menuItems.insert(menuItems.begin(), tr(STR_CONTINUE_READING));
     menuIcons.insert(menuIcons.begin(), Book);
   }
+
+  // Batch-load the SD CJK glyphs for every UI string before drawing. Without
+  // this, each drawText() miss reads the glyph from the SD card inside the
+  // render lock, and the 8-slot overflow ring cannot hold the full CJK menu,
+  // so every re-render re-reads evicted glyphs and freezes the UI.
+  if (headerTitle) {
+    renderer.prewarmText(UI_12_FONT_ID, headerTitle, EpdFontFamily::BOLD);
+  }
+  for (const char* item : menuItems) {
+    renderer.prewarmText(UI_10_FONT_ID, item);
+  }
+
+  GUI.drawHeader(renderer, Rect{0, metrics.topPadding, pageWidth, metrics.homeTopPadding}, headerTitle);
+
+  // Record the tile rect so storeCoverBuffer (called from the theme) knows
+  // which sub-region of the framebuffer to snapshot. ~16 KB in Portrait
+  // instead of the 48 KB full framebuffer the previous bind captured.
+  coverRectX = 0;
+  coverRectY = metrics.homeTopPadding;
+  coverRectW = pageWidth;
+  coverRectH = metrics.homeCoverTileHeight;
+
+  GUI.drawRecentBookCover(renderer, Rect{0, metrics.homeTopPadding, pageWidth, metrics.homeCoverTileHeight},
+                          recentBooks, selectorIndex, coverRendered, coverBufferStored, bufferRestored,
+                          std::bind(&HomeActivity::storeCoverBuffer, this));
 
   GUI.drawButtonMenu(
       renderer,

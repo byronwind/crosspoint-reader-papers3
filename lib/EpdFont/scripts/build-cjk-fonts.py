@@ -8,7 +8,8 @@ family enables the size-matched CJK fallback for interface strings, and the
 reader sizes (12-18) cover book content.
 
 Unlike build-sd-fonts.py (which converts only the Latin intervals for the
-Latin families), this script always converts the full "cjk" preset so the
+Latin families), this script always converts the full "cjk" preset plus
+general punctuation (U+2000-206F: curly quotes, em dash, ellipsis) so the
 Chinese/Japanese/Korean glyphs themselves are embedded in the output.
 
 Usage:
@@ -138,8 +139,10 @@ def main():
         "--sizes", dest="sizes", default=DEFAULT_SIZES,
         help=f"Comma-separated sizes (default: {DEFAULT_SIZES}).")
     parser.add_argument(
-        "--intervals", dest="intervals", default="cjk",
-        help="Comma-separated interval presets (default: cjk).")
+        "--intervals", dest="intervals", default="cjk,punctuation",
+        help="Comma-separated interval presets (default: cjk,punctuation). "
+        "'punctuation' (U+2000-206F) adds the general punctuation Chinese "
+        "books rely on: curly quotes \u2018\u2019 \u201c\u201d, em dash \u2014, ellipsis \u2026.")
     parser.add_argument(
         "--output-dir", dest="output_dir", default=str(DEFAULT_OUTPUT),
         help="Output directory for .cpfont files (default: <scripts>/output).")

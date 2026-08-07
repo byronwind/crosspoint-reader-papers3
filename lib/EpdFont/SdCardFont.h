@@ -265,7 +265,14 @@ class SdCardFont {
   // Bounded to ADVANCE_CACHE_LIMIT entries; persists across layout passes
   // (across calls to clearCache()) so repeated indexing of the same font
   // amortizes SD reads. Cleared only on font unload or clearPersistentCache().
-  static constexpr uint32_t ADVANCE_CACHE_LIMIT = 768;
+  //
+  // Sized to hold the distinct glyphs of a whole CJK book (~1500-3000 chars
+  // incl. fullwidth punctuation). If the table fills mid-indexing, every later
+  // measurement misses and falls through to onGlyphMiss(), which loads FULL
+  // glyphs (bitmap included) into the 8-slot overflow ring — evict/reload
+  // thrashing that floods the log and freezes the UI during buildPageIndex().
+  // Each entry is 8 bytes; 4096 entries = 32 KB per style.
+  static constexpr uint32_t ADVANCE_CACHE_LIMIT = 4096;
   AdvanceEntry* advanceTable_[MAX_STYLES] = {};
   uint32_t advanceTableSize_[MAX_STYLES] = {};
   bool advanceTableLookup(uint8_t styleIdx, uint32_t codepoint, uint16_t* outAdvance) const;
