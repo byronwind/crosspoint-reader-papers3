@@ -276,6 +276,9 @@ class CrossPointSettings : public PersistableStore<CrossPointSettings> {
   uint8_t tiltPageTurn = TILT_OFF;
   // Touch screen reader zones/gestures on boards with a touch controller.
   uint8_t touchReaderControls = TOUCH_READER_ON;
+  // Show the four on-screen button hints as tappable virtual buttons on touch
+  // devices (0 = hidden, touch gestures only; 1 = drawn and tappable).
+  uint8_t showVirtualButtons = 0;
   // Language setting (Language enum index, default 0 = EN)
   uint8_t language = 0;
   // Quick Resume: keep current content visible with moon icon instead of showing a static sleep screen.

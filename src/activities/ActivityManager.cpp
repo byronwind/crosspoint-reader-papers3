@@ -6,6 +6,7 @@
 #include <algorithm>
 
 #include "OpdsServerStore.h"
+#include "components/UITheme.h"
 #include "boot_sleep/BootActivity.h"
 #include "boot_sleep/SleepActivity.h"
 #include "browser/OpdsBookBrowserActivity.h"
@@ -50,6 +51,9 @@ void ActivityManager::renderTaskLoop() {
     RenderLock lock;
     if (currentActivity) {
       HalPowerManager::Lock powerLock;  // Ensure we don't go into low-power mode while rendering
+      // Start-of-frame: the previous frame's virtual-button bar latch is stale
+      // unless this frame's drawButtonHints re-sets it.
+      UITheme::getInstance().getTheme().clearVirtualBarDrawn();
       currentActivity->render(std::move(lock));
     }
     // Notify any task blocked in requestUpdateAndWait() that the render is done.

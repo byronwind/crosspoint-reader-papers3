@@ -121,9 +121,122 @@ constexpr float BOTTOM_EDGE_BACK_GESTURE_FRAC_Y = 0.14f;
 constexpr float TOP_EDGE_MENU_GESTURE_FRAC_Y = 0.14f;
 constexpr unsigned long TOUCH_DOWN_SELECT_DELAY_MS = 90;
 constexpr unsigned long TOUCH_HELD_OVERRIDE_WINDOW_MS = 250;
+// Stationary contact time on a virtual button before it activates without
+// waiting for lift-off. Matches the feel of list touch-down selection and is
+// long enough that a flick (home/back swipe) exceeds the tap slop first.
+constexpr unsigned long VIRTUAL_BUTTON_DWELL_MS = 100;
 }  // namespace
 
 bool MappedInputManager::hasTouch() const { return gpio.hasTouch(); }
+
+void MappedInputManager::update() const {
+  gpio.update();
+  pollVirtualButtons();
+}
+
+void MappedInputManager::pollVirtualButtons() const {
+  synthPressMask = 0;
+  synthReleaseMask = 0;
+  synthTapConsumed = false;
+  if (!SETTINGS.showVirtualButtons || !gpio.hasTouch()) {
+    dwellActivated = false;
+    return;
+  }
+
+  // The hint bar drawn last frame marks the virtual-button zone as live; the
+  // render task clears the latch at the start of each frame, so a stale bar
+  // never stays tappable after a screen without a bar is rendered.
+  const auto& theme = UITheme::getInstance().getTheme();
+  if (!theme.virtualBarDrawnNow()) {
+    dwellActivated = false;
+    return;
+  }
+
+  const auto fire = [this](const int i) {
+    // Bar position i shows the label of raw front button i (BTN_BACK..BTN_RIGHT),
+    // so a press there synthesizes that exact hardware button (remap-safe).
+    const uint8_t bit = static_cast<uint8_t>(1u << i);
+    synthPressMask |= bit;
+    synthReleaseMask |= bit;
+    synthTapConsumed = true;
+    rememberTouchHeldTime();
+  };
+
+  float nx = 0.0f;
+  float ny = 0.0f;
+  if (gpio.wasTouchTap(nx, ny)) {
+    // Contact ended: a quick tap activates on release; a dwell-activated
+    // contact just gets its release swallowed.
+    const int i = virtualButtonAt(nx, ny);
+    if (i >= 0) {
+      if (!dwellActivated) fire(i);
+      else synthTapConsumed = true;
+    }
+    dwellActivated = false;
+    return;
+  }
+
+  unsigned long heldMs = 0;
+  if (gpio.isTouchTapCandidate(nx, ny, heldMs)) {
+    if (!dwellActivated && heldMs >= VIRTUAL_BUTTON_DWELL_MS) {
+      const int i = virtualButtonAt(nx, ny);
+      if (i >= 0) {
+        // Dwell activation: fire while the finger is still down.
+        dwellActivated = true;
+        fire(i);
+      }
+    }
+    return;
+  }
+
+  // No live contact left: a dwell flag from a contact that turned into a
+  // swipe dies here.
+  dwellActivated = false;
+}
+
+int MappedInputManager::virtualButtonAt(const float nx, const float ny) const {
+  const auto& theme = UITheme::getInstance().getTheme();
+  // The bar is drawn in portrait space regardless of the live orientation.
+  int px = 0;
+  int py = 0;
+  renderer.tapToPortrait(nx, ny, px, py);
+  for (int i = 0; i < 4; i++) {
+    int x = 0;
+    int y = 0;
+    int w = 0;
+    int h = 0;
+    if (!theme.virtualButtonRect(renderer, i, x, y, w, h)) continue;
+    if (px >= x && px < x + w && py >= y && py < y + h) return i;
+  }
+  return -1;
+}
+
+bool MappedInputManager::wasSynthButton(const uint8_t mask, const Button button) const {
+  if (!mask) return false;
+  const auto hit = [&mask](const uint8_t hw) { return (mask & (1u << hw)) != 0; };
+  switch (button) {
+    case Button::Back:
+      return hit(SETTINGS.frontButtonBack);
+    case Button::Confirm:
+      return hit(SETTINGS.frontButtonConfirm);
+    case Button::Left:
+      return hit(SETTINGS.frontButtonLeft);
+    case Button::Right:
+      return hit(SETTINGS.frontButtonRight);
+    case Button::NavNext:
+      // Mirror mapButton's NavNext composition (side buttons never synthesize).
+      return isNavDirectionSwapped() ? wasSynthButton(mask, Button::Left) : wasSynthButton(mask, Button::Right);
+    case Button::NavPrevious:
+      return isNavDirectionSwapped() ? wasSynthButton(mask, Button::Right) : wasSynthButton(mask, Button::Left);
+    case Button::ScreenLeft:
+    case Button::ScreenRight:
+    case Button::ScreenUp:
+    case Button::ScreenDown:
+      return wasSynthButton(mask, mapScreenDirection(button));
+    default:
+      return false;
+  }
+}
 
 void MappedInputManager::rememberTouchHeldTime() const {
   touchHeldOverrideValid = true;
@@ -132,6 +245,7 @@ void MappedInputManager::rememberTouchHeldTime() const {
 }
 
 bool MappedInputManager::wasScreenTapped(int& x, int& y) const {
+  if (synthTapConsumed) return false;
   float nx = 0.0f;
   float ny = 0.0f;
   if (!gpio.wasTouchTap(nx, ny)) return false;
@@ -311,17 +425,19 @@ bool MappedInputManager::wasHomeGesture() const {
 
 bool MappedInputManager::wasPressed(const Button button) const {
   if (button == Button::Back && wasBackGesture()) return true;
+  if (wasSynthButton(synthPressMask, button)) return true;
   return mapButton(button, &HalGPIO::wasPressed);
 }
 
 bool MappedInputManager::wasReleased(const Button button) const {
   if (button == Button::Back && wasBackGesture()) return true;
+  if (wasSynthButton(synthReleaseMask, button)) return true;
   return mapButton(button, &HalGPIO::wasReleased);
 }
 
 bool MappedInputManager::isPressed(const Button button) const { return mapButton(button, &HalGPIO::isPressed); }
 
-bool MappedInputManager::wasAnyPressed() const { return gpio.wasAnyPressed(); }
+bool MappedInputManager::wasAnyPressed() const { return synthPressMask != 0 || gpio.wasAnyPressed(); }
 
 bool MappedInputManager::wasAnyReleased() const { return gpio.wasAnyReleased(); }
 

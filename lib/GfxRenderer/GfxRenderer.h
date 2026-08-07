@@ -153,6 +153,14 @@ class GfxRenderer {
   void ensureSdCardFontReady(int fontId, const char* utf8Text, uint8_t styleMask = 0x0F) const;
   void ensureSdCardFontReady(int fontId, const std::deque<std::string>& words, bool includeHyphen,
                              uint8_t styleMask = 0x0F) const;
+  // Batch-load glyph bitmaps (not just advances) for `text` into the SD font's
+  // mini cache before drawing, so the subsequent drawText() calls hit the cache
+  // instead of triggering per-glyph on-demand SD reads inside the render lock.
+  // Routes through the CJK fallback exactly like drawText() does; no-op for
+  // built-in flash fonts. UI screens with more CJK chars than the 8-slot
+  // overflow ring can hold (e.g. the home menu) must call this or every render
+  // re-reads evicted glyphs from the SD card.
+  void prewarmText(int fontId, const char* text, EpdFontFamily::Style style = EpdFontFamily::REGULAR) const;
 
   // Orientation control (affects logical width/height and coordinate transforms)
   void setOrientation(const Orientation o) { orientation = o; }
@@ -165,6 +173,10 @@ class GfxRenderer {
   int getScreenWidth() const;
   int getScreenHeight() const;
   void tapToLogical(float nx, float ny, int& outX, int& outY) const;
+  // Same as tapToLogical but always in Portrait logical space, regardless of
+  // the live orientation. Used to hit-test UI drawn in portrait coordinates
+  // (e.g. the virtual button hint bar) against raw touch points.
+  void tapToPortrait(float nx, float ny, int& outX, int& outY) const;
   void displayBuffer(HalDisplay::RefreshMode refreshMode = HalDisplay::FAST_REFRESH) const;
   // Non-blocking refresh: starts the waveform and returns so CPU work (e.g.
   // grayscale strip rendering) can overlap the panel's refresh time. The

@@ -12,6 +12,7 @@
 #include <string>
 
 #include "I18n.h"
+#include "CrossPointSettings.h"
 #include "RecentBooksStore.h"
 #include "components/UITheme.h"
 #include "components/icons/bookmark.h"
@@ -151,37 +152,58 @@ void BaseTheme::drawProgressBar(const GfxRenderer& renderer, Rect rect, const si
 
 void BaseTheme::drawButtonHints(GfxRenderer& renderer, const char* btn1, const char* btn2, const char* btn3,
                                 const char* btn4) const {
-  if (gpio.hasTouch()) {
+  if (gpio.hasTouch() && !SETTINGS.showVirtualButtons) {
     return;
   }
+  virtualBarDrawn = true;
 
   const GfxRenderer::Orientation orig_orientation = renderer.getOrientation();
   renderer.setOrientation(GfxRenderer::Orientation::Portrait);
 
-  const int pageHeight = renderer.getScreenHeight();
-  constexpr int buttonWidth = 106;
-  constexpr int buttonHeight = BaseMetrics::values.buttonHintsHeight;
-  constexpr int buttonY = BaseMetrics::values.buttonHintsHeight;  // Distance from bottom
-  constexpr int textYOffset = 7;                                  // Distance from top of button to text baseline
-  // X3 has wider screen in portrait (528 vs 480), use more spacing
-  constexpr int x4ButtonPositions[] = {25, 130, 245, 350};
-  constexpr int x3ButtonPositions[] = {38, 154, 268, 384};
-  const int* buttonPositions = gpio.deviceIsX3() ? x3ButtonPositions : x4ButtonPositions;
+  constexpr int textYOffset = 7;  // Distance from top of button to text baseline
   const char* labels[] = {btn1, btn2, btn3, btn4};
 
   for (int i = 0; i < 4; i++) {
+    int x = 0, y = 0, w = 0, h = 0;
+    if (!virtualButtonRect(renderer, i, x, y, w, h)) continue;
     // Only draw if the label is non-empty
     if (labels[i] != nullptr && labels[i][0] != '\0') {
-      const int x = buttonPositions[i];
-      renderer.fillRect(x, pageHeight - buttonY, buttonWidth, buttonHeight, false);
-      renderer.drawRect(x, pageHeight - buttonY, buttonWidth, buttonHeight);
+      renderer.fillRect(x, y, w, h, false);
+      renderer.drawRect(x, y, w, h);
       const int textWidth = renderer.getTextWidth(UI_10_FONT_ID, labels[i]);
-      const int textX = x + (buttonWidth - 1 - textWidth) / 2;
-      renderer.drawText(UI_10_FONT_ID, textX, pageHeight - buttonY + textYOffset, labels[i]);
+      const int textX = x + (w - 1 - textWidth) / 2;
+      renderer.drawText(UI_10_FONT_ID, textX, y + textYOffset, labels[i]);
     }
   }
 
   renderer.setOrientation(orig_orientation);
+}
+
+bool BaseTheme::virtualButtonRect(const GfxRenderer& renderer, const int index, int& x, int& y, int& w,
+                                  int& h) const {
+  if (index < 0 || index > 3) return false;
+  const auto o = renderer.getOrientation();
+  const bool portraitLive = o == GfxRenderer::Portrait || o == GfxRenderer::PortraitInverted;
+  const int pageWidth = portraitLive ? renderer.getScreenWidth() : renderer.getScreenHeight();
+  const int pageHeight = portraitLive ? renderer.getScreenHeight() : renderer.getScreenWidth();
+
+  constexpr int buttonWidth = 106;
+  constexpr int buttonHeight = BaseMetrics::values.buttonHintsHeight;
+  // X3 has a wider screen in portrait (528 vs 480); panels wider still
+  // (e.g. PaperS3's 540) get an evenly distributed layout.
+  constexpr int x4ButtonPositions[] = {25, 130, 245, 350};
+  constexpr int x3ButtonPositions[] = {38, 154, 268, 384};
+  const int* buttonPositions = gpio.deviceIsX3() ? x3ButtonPositions : x4ButtonPositions;
+  int bx = buttonPositions[index];
+  if (pageWidth > 528) {
+    const int margin = (pageWidth - 4 * buttonWidth) / 5;
+    bx = margin * (index + 1) + buttonWidth * index;
+  }
+  x = bx;
+  y = pageHeight - buttonHeight;
+  w = buttonWidth;
+  h = buttonHeight;
+  return true;
 }
 
 void BaseTheme::drawSideButtonHints(const GfxRenderer& renderer, const char* topBtn, const char* bottomBtn) const {

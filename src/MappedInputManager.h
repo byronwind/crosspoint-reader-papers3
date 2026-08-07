@@ -34,7 +34,8 @@ class MappedInputManager {
 
   MappedInputManager(HalGPIO& gpio, const GfxRenderer& renderer) : gpio(gpio), renderer(renderer) {}
 
-  void update() const { gpio.update(); }
+  // Polls GPIO and the on-screen virtual button bar (see pollVirtualButtons).
+  void update() const;
   bool wasPressed(Button button) const;
   bool wasReleased(Button button) const;
   bool isPressed(Button button) const;
@@ -93,6 +94,15 @@ class MappedInputManager {
   Button mapScreenDirection(Button button) const;
   Labels mapFrontLabels(const char* back, const char* confirm, const char* left, const char* right) const;
   bool mapButton(Button button, bool (HalGPIO::*fn)(uint8_t) const) const;
+  // Hit-tests this frame's touch against the virtual button bar drawn last
+  // frame. A stationary contact activates after a short dwell and a quicker
+  // tap activates on release, so the user never pays the full press duration
+  // as latency; the touch is swallowed so touch consumers don't double-handle.
+  void pollVirtualButtons() const;
+  // True when `mask` (synthPressMask/synthReleaseMask) synthesizes `button`.
+  bool wasSynthButton(uint8_t mask, Button button) const;
+  // Bar position (0..3) under the normalized touch point, or -1.
+  int virtualButtonAt(float nx, float ny) const;
   bool wasBackGesture() const;
   // Fetch the pending swipe (if any) and map both endpoints to logical screen coords
   bool decodeSwipe(int& sx, int& sy, int& ex, int& ey) const;
@@ -103,4 +113,12 @@ class MappedInputManager {
   mutable bool touchHeldOverrideValid = false;
   mutable unsigned long touchHeldOverrideMs = 0;
   mutable unsigned long touchHeldOverrideAt = 0;
+  // Per-frame synthetic edges (raw front button bitmask, BTN_BACK..BTN_RIGHT)
+  // produced by the on-screen virtual button bar.
+  mutable uint8_t synthPressMask = 0;
+  mutable uint8_t synthReleaseMask = 0;
+  // True when this frame's tap was consumed by a virtual button.
+  mutable bool synthTapConsumed = false;
+  // A live contact was already dwell-activated; its release is swallowed.
+  mutable bool dwellActivated = false;
 };

@@ -116,6 +116,18 @@ void GfxRenderer::ensureSdCardFontReady(int fontId, const std::deque<std::string
   }
 }
 
+void GfxRenderer::prewarmText(int fontId, const char* text, const EpdFontFamily::Style style) const {
+  if (!fontCacheManager_ || text == nullptr || *text == '\0') {
+    return;
+  }
+  // Resolve exactly like drawText() so CJK strings land on the fallback SD font.
+  const int resolvedId = resolveTextFontId(fontId, text, style);
+  if (sdCardFonts_.find(resolvedId) == sdCardFonts_.end()) {
+    return;  // Built-in flash fonts need no SD prewarm
+  }
+  fontCacheManager_->prewarmCache(resolvedId, text, static_cast<uint8_t>(1u << static_cast<uint8_t>(style)));
+}
+
 void GfxRenderer::begin() {
   frameBuffer = display.getFrameBuffer();
   if (!frameBuffer) {
@@ -1610,6 +1622,29 @@ std::string GfxRenderer::truncatedText(const int fontId, const char* text, const
   return item.empty() ? ellipsis : item + ellipsis;
 }
 
+namespace {
+
+// True when `s` begins with a CJK codepoint that carries an implicit
+// per-character line-break opportunity (Han/Kana/Hangul/fullwidth forms).
+bool startsWithCjkBreakable(const std::string& s) {
+  if (s.empty()) return false;
+  const auto* ptr = reinterpret_cast<const unsigned char*>(s.c_str());
+  return utf8IsCjkBreakable(utf8NextCodepoint(&ptr));
+}
+
+// True when `s` ends with a CJK breakable codepoint.
+bool endsWithCjkBreakable(const std::string& s) {
+  if (s.empty()) return false;
+  const auto* ptr = reinterpret_cast<const unsigned char*>(s.c_str());
+  uint32_t last = 0;
+  while (*ptr) {
+    last = utf8NextCodepoint(&ptr);
+  }
+  return utf8IsCjkBreakable(last);
+}
+
+}  // namespace
+
 std::vector<std::string> GfxRenderer::wrappedText(const int fontId, const char* text, const int maxWidth,
                                                   const int maxLines, const EpdFontFamily::Style style) const {
   std::vector<std::string> lines;
@@ -1623,24 +1658,65 @@ std::vector<std::string> GfxRenderer::wrappedText(const int fontId, const char* 
     if (static_cast<int>(lines.size()) == maxLines - 1) {
       // Last available line: combine any word already started on this line with
       // the rest of the text, then let truncatedText fit it with an ellipsis.
-      std::string lastContent = currentLine.empty() ? remaining : currentLine + " " + remaining;
+      // No separator between CJK-adjacent fragments (space-less scripts).
+      std::string lastContent;
+      if (currentLine.empty()) {
+        lastContent = remaining;
+      } else if (endsWithCjkBreakable(currentLine) || startsWithCjkBreakable(remaining)) {
+        lastContent = currentLine + remaining;
+      } else {
+        lastContent = currentLine + " " + remaining;
+      }
       lines.push_back(truncatedText(fontId, lastContent.c_str(), maxWidth, style));
       return lines;
     }
 
-    // Find next word
-    size_t spacePos = remaining.find(' ');
+    // Find next wrap token: a space-delimited run for space-based scripts, or
+    // a single codepoint when the run starts with a CJK breakable character
+    // (implicit break opportunity per char — Chinese/Japanese text has no
+    // spaces, so without this the whole string becomes one unbreakable "word"
+    // that only ever truncates instead of wrapping). A Latin run is also cut
+    // before the first embedded CJK character so mixed text wraps correctly.
     std::string word;
-
-    if (spacePos == std::string::npos) {
-      word = remaining;
-      remaining.clear();
+    if (startsWithCjkBreakable(remaining)) {
+      const auto* head = reinterpret_cast<const unsigned char*>(remaining.c_str());
+      const auto* ptr = head;
+      utf8NextCodepoint(&ptr);
+      const size_t len = static_cast<size_t>(ptr - head);
+      word = remaining.substr(0, len);
+      remaining.erase(0, len);
     } else {
-      word = remaining.substr(0, spacePos);
-      remaining.erase(0, spacePos + 1);
+      size_t tokenEnd = remaining.find(' ');
+      const auto* head = reinterpret_cast<const unsigned char*>(remaining.c_str());
+      const auto* ptr = head;
+      size_t cjkOffset = 0;
+      while (*ptr) {
+        const uint32_t cp = utf8NextCodepoint(&ptr);
+        if (utf8IsCjkBreakable(cp)) break;
+        cjkOffset = static_cast<size_t>(ptr - head);
+      }
+      if (cjkOffset > 0 && (tokenEnd == std::string::npos || cjkOffset < tokenEnd)) {
+        tokenEnd = cjkOffset;  // cut the Latin run before the CJK character
+      }
+      if (tokenEnd == std::string::npos) {
+        word = remaining;
+        remaining.clear();
+      } else {
+        word = remaining.substr(0, tokenEnd);
+        const bool ateSpace = tokenEnd < remaining.size() && remaining[tokenEnd] == ' ';
+        remaining.erase(0, tokenEnd + (ateSpace ? 1 : 0));
+      }
     }
 
-    std::string testLine = currentLine.empty() ? word : currentLine + " " + word;
+    // Spaceless scripts join without a separator.
+    std::string testLine;
+    if (currentLine.empty()) {
+      testLine = word;
+    } else if (endsWithCjkBreakable(currentLine) || startsWithCjkBreakable(word)) {
+      testLine = currentLine + word;
+    } else {
+      testLine = currentLine + " " + word;
+    }
 
     if (getTextWidth(fontId, testLine.c_str(), style) <= maxWidth) {
       currentLine = testLine;
@@ -1730,6 +1806,17 @@ void GfxRenderer::tapToLogical(float nx, float ny, int& outX, int& outY) const {
       outY = phyY;
       break;
   }
+}
+
+void GfxRenderer::tapToPortrait(float nx, float ny, int& outX, int& outY) const {
+  int phyX = static_cast<int>(nx * panelWidth);
+  int phyY = static_cast<int>(ny * panelHeight);
+  if (phyX < 0) phyX = 0;
+  if (phyX > panelWidth - 1) phyX = panelWidth - 1;
+  if (phyY < 0) phyY = 0;
+  if (phyY > panelHeight - 1) phyY = panelHeight - 1;
+  outX = panelHeight - 1 - phyY;
+  outY = phyX;
 }
 
 // Translate a logical rect through rotateCoordinates and take the bounding

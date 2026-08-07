@@ -9,6 +9,7 @@
 #include <string>
 #include <vector>
 
+#include "CrossPointSettings.h"
 #include "RecentBooksStore.h"
 #include "components/UITheme.h"
 #include "components/icons/cover.h"
@@ -353,9 +354,10 @@ void RoundedRaffTheme::drawList(const GfxRenderer& renderer, Rect rect, int item
 
 void RoundedRaffTheme::drawButtonHints(GfxRenderer& renderer, const char* btn1, const char* btn2, const char* btn3,
                                        const char* btn4) const {
-  if (gpio.hasTouch()) {
+  if (gpio.hasTouch() && !SETTINGS.showVirtualButtons) {
     return;
   }
+  virtualBarDrawn = true;
 
   const GfxRenderer::Orientation origOrientation = renderer.getOrientation();
   renderer.setOrientation(GfxRenderer::Orientation::Portrait);
@@ -404,4 +406,32 @@ void RoundedRaffTheme::drawButtonHints(GfxRenderer& renderer, const char* btn1, 
   renderer.drawText(kGuideFontId, downX, textY, downText.c_str(), true, EpdFontFamily::REGULAR);
 
   renderer.setOrientation(origOrientation);
+}
+
+bool RoundedRaffTheme::virtualButtonRect(const GfxRenderer& renderer, const int index, int& x, int& y, int& w,
+                                         int& h) const {
+  if (index < 0 || index > 3) return false;
+  const auto o = renderer.getOrientation();
+  const bool portraitLive = o == GfxRenderer::Portrait || o == GfxRenderer::PortraitInverted;
+  const int pageWidth = portraitLive ? renderer.getScreenWidth() : renderer.getScreenHeight();
+  const int pageHeight = portraitLive ? renderer.getScreenHeight() : renderer.getScreenWidth();
+
+  // Mirrors drawButtonHints' two-group bar: left group hosts back/select,
+  // right group hosts up/down. Each button owns half of its group.
+  const int sidePadding = 20;
+  const int groupGap = 10;
+  const int bottomMargin = 10;
+  const int hintHeight = RoundedRaffMetrics::values.buttonHintsHeight - 10;
+  const int groupWidth = (pageWidth - sidePadding * 2 - groupGap) / 2;
+  const int hintY = pageHeight - hintHeight - bottomMargin;
+  const int leftGroupX = sidePadding;
+  const int rightGroupX = leftGroupX + groupWidth + groupGap;
+  const int halfWidth = groupWidth / 2;
+
+  const int groupX = (index < 2) ? leftGroupX : rightGroupX;
+  x = groupX + (index % 2) * halfWidth;
+  y = hintY;
+  w = halfWidth;
+  h = hintHeight;
+  return true;
 }

@@ -185,7 +185,7 @@ class BaseTheme {
                         bool showPercentage = true) const;  // Right aligned (UI headers)
   virtual void fillBatteryIcon(const GfxRenderer& renderer, Rect rect, uint16_t percentage) const;
   virtual void drawButtonHints(GfxRenderer& renderer, const char* btn1, const char* btn2, const char* btn3,
-                               const char* btn4) const;
+                                const char* btn4) const;
   virtual void drawSideButtonHints(const GfxRenderer& renderer, const char* topBtn, const char* bottomBtn) const;
   virtual int getListRowStep(bool hasSubtitle) const;
   virtual int getListPageItems(int contentHeight, bool hasSubtitle) const;
@@ -226,4 +226,19 @@ class BaseTheme {
   static constexpr int batteryPercentSpacing = 4;
   static void drawBatteryOutline(const GfxRenderer& renderer, int x, int y, int battWidth, int rectHeight);
   static void drawBatteryLightningBolt(const GfxRenderer& renderer, int boltX, int boltY);
+
+  // Portrait-space hit rect of on-screen virtual button `index` (0 = back,
+  // 1 = confirm, 2 = previous, 3 = next), matching the bar drawButtonHints
+  // renders. Themes with a different bar layout override this.
+  virtual bool virtualButtonRect(const GfxRenderer& renderer, int index, int& x, int& y, int& w, int& h) const;
+
+  // Latched true by drawButtonHints whenever the hint bar is actually drawn;
+  // the render task clears it at the start of every frame (see
+  // clearVirtualBarDrawn), so it reflects "a bar is on screen right now" and
+  // the input layer can peek it to enable virtual-button hit-testing.
+  bool virtualBarDrawnNow() const { return virtualBarDrawn; }
+  void clearVirtualBarDrawn() const { virtualBarDrawn = false; }
+
+ protected:
+  mutable bool virtualBarDrawn = false;
 };

@@ -473,7 +473,9 @@ void loop() {
   static unsigned long lastMemPrint = 0;
 
   gpio.setSharedConfirmPowerShortPressEmitsPower(SETTINGS.shortPwrBtn == CrossPointSettings::SHORT_PWRBTN::SLEEP);
-  gpio.update();
+  // Poll via the input manager so the on-screen virtual button bar gets its
+  // per-frame tap hit-test (plain gpio.update() would skip it).
+  mappedInputManager.update();
   halTiltSensor.update(SETTINGS.tiltPageTurn, SETTINGS.orientation, activityManager.isReaderActivity());
 
   renderer.setFadingFix(SETTINGS.fadingFix);
