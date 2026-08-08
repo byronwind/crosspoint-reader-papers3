@@ -102,12 +102,14 @@ EpdFontFamily notosans18FontFamily(&notosans18RegularFont, &notosans18BoldFont, 
 EpdFont smallFont(&notosans_8_regular);
 EpdFontFamily smallFontFamily(&smallFont);
 
-EpdFont ui10RegularFont(&ubuntu_10_regular);
-EpdFont ui10BoldFont(&ubuntu_10_bold);
+// PaperS3 bump: UI fonts two steps larger than upstream (10/12 -> 12/14 pt)
+// for readability on the 4.7" 960x540 panel; macro names UI_10/UI_12 kept.
+EpdFont ui10RegularFont(&ubuntu_12_regular);
+EpdFont ui10BoldFont(&ubuntu_12_bold);
 EpdFontFamily ui10FontFamily(&ui10RegularFont, &ui10BoldFont);
 
-EpdFont ui12RegularFont(&ubuntu_12_regular);
-EpdFont ui12BoldFont(&ubuntu_12_bold);
+EpdFont ui12RegularFont(&ubuntu_14_regular);
+EpdFont ui12BoldFont(&ubuntu_14_bold);
 EpdFontFamily ui12FontFamily(&ui12RegularFont, &ui12BoldFont);
 
 // measurement of power button press duration calibration value

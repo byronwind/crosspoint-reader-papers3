@@ -28,7 +28,8 @@ for size in ${NOTOSANS_FONT_SIZES[@]}; do
   done
 done
 
-UI_FONT_SIZES=(10 12)
+# PaperS3 fork: UI fonts bumped two steps larger than upstream (10/12 -> 12/14).
+UI_FONT_SIZES=(12 14)
 UI_FONT_STYLES=("Regular" "Bold")
 
 # Arabic glyphs for UI text (menus, file browser titles). The built-in fonts

@@ -30,8 +30,10 @@ struct UiFontSize {
 };
 constexpr UiFontSize kUiFontSizes[] = {
     {SMALL_FONT_ID, 8},
-    {UI_10_FONT_ID, 10},
-    {UI_12_FONT_ID, 12},
+    // PaperS3 bump: built-in UI fonts are two steps larger than upstream
+    // (UI_10 -> 12 pt, UI_12 -> 14 pt), so the CJK SD fallback must match.
+    {UI_10_FONT_ID, 12},
+    {UI_12_FONT_ID, 14},
 };
 
 }  // namespace
