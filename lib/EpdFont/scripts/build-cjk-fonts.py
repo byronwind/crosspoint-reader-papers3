@@ -8,9 +8,11 @@ family enables the size-matched CJK fallback for interface strings, and the
 reader sizes (12-18) cover book content.
 
 Unlike build-sd-fonts.py (which converts only the Latin intervals for the
-Latin families), this script always converts the full "cjk" preset plus
-general punctuation (U+2000-206F: curly quotes, em dash, ellipsis) so the
-Chinese/Japanese/Korean glyphs themselves are embedded in the output.
+Latin families), this script converts the full "cjk" preset plus ascii,
+latin1 and general punctuation (U+2000-206F: curly quotes, em dash,
+ellipsis). ascii/latin1 are mandatory: any string containing a CJK
+codepoint is rendered entirely with the SD font (GfxRenderer::
+resolveTextFontId), so digits/Latin letters must exist in it too.
 
 Usage:
     # Build with the default Noto Sans CJK SC (regular style)
@@ -74,8 +76,9 @@ CJK_FONTS = {
     ),
 }
 
-# UI sizes (8/10/12) + reader sizes (14/16/18). The 8/10/12 sizes back the
-# size-matched CJK UI fallback in SdCardFontSystem::setupUiFallbacks().
+# UI sizes (8/12/14) + reader sizes (14/16/18). The 8/12/14 sizes back the
+# size-matched CJK UI fallback in SdCardFontSystem::setupUiFallbacks() (the
+# PaperS3 fork bumps the UI fonts to 12/14 pt).
 DEFAULT_SIZES = "8,10,12,14,16,18"
 
 
@@ -139,10 +142,13 @@ def main():
         "--sizes", dest="sizes", default=DEFAULT_SIZES,
         help=f"Comma-separated sizes (default: {DEFAULT_SIZES}).")
     parser.add_argument(
-        "--intervals", dest="intervals", default="cjk,punctuation",
-        help="Comma-separated interval presets (default: cjk,punctuation). "
-        "'punctuation' (U+2000-206F) adds the general punctuation Chinese "
-        "books rely on: curly quotes \u2018\u2019 \u201c\u201d, em dash \u2014, ellipsis \u2026.")
+        "--intervals", dest="intervals", default="ascii,latin1,cjk,punctuation",
+        help="Comma-separated interval presets (default: ascii,latin1,cjk,punctuation). "
+        "'ascii'/'latin1' are required: strings containing any CJK codepoint are "
+        "rendered ENTIRELY with the SD font (see GfxRenderer::resolveTextFontId), "
+        "so the SD font must also cover digits/Latin letters or they vanish in "
+        "Chinese text. 'punctuation' (U+2000-206F) adds the general punctuation "
+        "Chinese books rely on: curly quotes ‘’ “”, em dash —, ellipsis ….")
     parser.add_argument(
         "--output-dir", dest="output_dir", default=str(DEFAULT_OUTPUT),
         help="Output directory for .cpfont files (default: <scripts>/output).")
