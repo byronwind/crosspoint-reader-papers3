@@ -36,9 +36,11 @@ struct SettingInfo {
   SettingAction action = SettingAction::None;
 
   struct ValueRange {
-    uint8_t min;
-    uint8_t max;
-    uint8_t step;
+    // int rather than uint8_t: web-exposed dynamic values (e.g. Anki daily
+    // limits 0..999, max interval up to 36500) exceed a byte.
+    int min;
+    int max;
+    int step;
   };
   ValueRange valueRange = {};
 
@@ -51,9 +53,10 @@ struct SettingInfo {
   size_t stringOffset = 0;
   size_t stringMaxLen = 0;
 
-  // Dynamic accessors (for settings stored outside CrossPointSettings, e.g. KOReaderCredentialStore)
-  std::function<uint8_t()> valueGetter;
-  std::function<void(uint8_t)> valueSetter;
+  // Dynamic accessors (for settings stored outside CrossPointSettings, e.g. KOReaderCredentialStore).
+  // int-typed so web-exposed values can exceed uint8_t (Anki limits/interval).
+  std::function<int()> valueGetter;
+  std::function<void(int)> valueSetter;
   std::function<std::string()> stringGetter;
   std::function<void(const std::string&)> stringSetter;
 
@@ -110,6 +113,20 @@ struct SettingInfo {
     return s;
   }
 
+  static SettingInfo DynamicValue(StrId nameId, const ValueRange valueRange, std::function<int()> getter,
+                                  std::function<void(int)> setter, const char* key = nullptr,
+                                  StrId category = StrId::STR_NONE_OPT) {
+    SettingInfo s;
+    s.nameId = nameId;
+    s.type = SettingType::VALUE;
+    s.valueRange = valueRange;
+    s.valueGetter = std::move(getter);
+    s.valueSetter = std::move(setter);
+    s.key = key;
+    s.category = category;
+    return s;
+  }
+
   static SettingInfo String(StrId nameId, char* ptr, size_t maxLen, const char* key = nullptr,
                             StrId category = StrId::STR_NONE_OPT) {
     SettingInfo s;
@@ -122,8 +139,8 @@ struct SettingInfo {
     return s;
   }
 
-  static SettingInfo DynamicEnum(StrId nameId, std::vector<StrId> values, std::function<uint8_t()> getter,
-                                 std::function<void(uint8_t)> setter, const char* key = nullptr,
+  static SettingInfo DynamicEnum(StrId nameId, std::vector<StrId> values, std::function<int()> getter,
+                                 std::function<void(int)> setter, const char* key = nullptr,
                                  StrId category = StrId::STR_NONE_OPT) {
     SettingInfo s;
     s.nameId = nameId;

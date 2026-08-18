@@ -210,15 +210,37 @@ void RoundedRaffTheme::drawButtonMenu(GfxRenderer& renderer, Rect rect, int butt
                                       const std::function<UIIcon(int index)>& rowIcon) const {
   (void)rowIcon;
   const int sidePadding = RoundedRaffMetrics::values.contentSidePadding;
-  const int rowX = rect.x + sidePadding;
   const int rowHeight = renderer.getLineHeight(kTitleFontId) + 20;  // 10px top + 10px bottom
+  const int textLineHeight = renderer.getLineHeight(kTitleFontId);
+
+  // Short rects (deck action bar, rating bar) want one horizontal row of
+  // buttons; taller rects (home menu, settings) stack them vertically.
+  // "Can't fit two rows" so a bar taller than a single row still reads as a
+  // single-row button strip.
+  const bool singleRow = rect.height < rowHeight * 2;
+  if (singleRow) {
+    const int tileWidth = rect.width / buttonCount;
+    for (int i = 0; i < buttonCount; ++i) {
+      const int tileX = rect.x + tileWidth * i;
+      const bool isSelected = selectedIndex == i;
+      renderer.fillRoundedRect(tileX, rect.y, tileWidth, rect.height, kMenuRadius,
+                               isSelected ? Color::Black : Color::White);
+      const std::string label = buttonLabel(i);
+      const int textWidth = renderer.getTextWidth(kTitleFontId, label.c_str(), EpdFontFamily::BOLD);
+      const int textX = tileX + (tileWidth - textWidth) / 2;
+      const int textY = rect.y + (rect.height - textLineHeight) / 2;
+      renderer.drawText(kTitleFontId, textX, textY, label.c_str(), !isSelected, EpdFontFamily::BOLD);
+    }
+    return;
+  }
+
   const int rowGap = kSelectableRowGap;
   const int rowStep = rowHeight + rowGap;
   const int pageItems = std::max(1, rect.height / rowStep);
   const int safeSelectedIndex = std::max(0, selectedIndex);
   const int pageStartIndex = (safeSelectedIndex / pageItems) * pageItems;
   const int menuTop = rect.y;
-  const int textLineHeight = renderer.getLineHeight(kTitleFontId);
+  const int rowX = rect.x + sidePadding;
   const int menuMaxWidth = std::max(0, rect.width - sidePadding * 2);
 
   for (int i = pageStartIndex; i < buttonCount && i < pageStartIndex + pageItems; ++i) {

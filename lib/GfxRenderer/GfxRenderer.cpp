@@ -210,11 +210,16 @@ int GfxRenderer::resolveTextFontId(const int fontId, const char* text, const Epd
   const char* cursor = text;
   uint32_t cp;
   while ((cp = utf8NextCodepoint(reinterpret_cast<const uint8_t**>(&cursor)))) {
-    // Only redirect for CJK the primary font cannot draw but the fallback can.
-    // Latin/symbol strings the built-in UI fonts already cover are left
+    // Redirect for codepoints the primary font cannot draw but the fallback
+    // can: CJK ideographs/punctuation, and IPA phonetic symbols (U+0250-02AF
+    // extensions, U+02B0-02FF spacing modifiers like ɪ ʃ ː in dictionary
+    // pronunciation lines) which the built-in Latin fonts don't carry.
+    // Plain Latin/symbol strings the built-in fonts already cover are left
     // untouched, and a partial-coverage fallback (e.g. kana-only) is not worth
     // dragging the whole string into for glyphs it would also miss.
-    if (utf8IsCjkCodepoint(cp) && !primary.hasCodepoint(cp, style) && fallback.hasCodepoint(cp, style)) {
+    const bool needsFallbackGlyph =
+        utf8IsCjkCodepoint(cp) || (cp >= 0x0250 && cp <= 0x02FF);
+    if (needsFallbackGlyph && !primary.hasCodepoint(cp, style) && fallback.hasCodepoint(cp, style)) {
       return fallbackFontId;
     }
   }

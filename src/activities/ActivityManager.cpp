@@ -19,6 +19,14 @@
 #include "settings/OpdsServerListActivity.h"
 #include "settings/SettingsActivity.h"
 #include "util/FullScreenMessageActivity.h"
+#ifdef ANKIEINK
+#include "anki/ApkgPickerActivity.h"
+#include "anki/DeckImportActivity.h"
+#include "anki/DeckListActivity.h"
+#include "anki/FsrsSettingsActivity.h"
+#include "anki/ReviewActivity.h"
+#include "AnkiPaths.h"
+#endif
 
 static portMUX_TYPE activityManagerSpinlock = portMUX_INITIALIZER_UNLOCKED;
 
@@ -201,6 +209,29 @@ void ActivityManager::goToFileBrowser(std::string path) {
 void ActivityManager::goToRecentBooks() {
   replaceActivity(std::make_unique<RecentBooksActivity>(renderer, mappedInput));
 }
+
+#ifdef ANKIEINK
+void ActivityManager::goToAnkiDecks() {
+  replaceActivity(std::make_unique<DeckListActivity>(renderer, mappedInput));
+}
+
+void ActivityManager::goToAnkiPickApkg() {
+  replaceActivity(std::make_unique<ApkgPickerActivity>(renderer, mappedInput));
+}
+
+void ActivityManager::goToAnkiReview(uint32_t deckId, std::string deckName) {
+  replaceActivity(std::make_unique<ReviewActivity>(renderer, mappedInput, deckId, std::move(deckName)));
+}
+
+void ActivityManager::goToAnkiFsrsSettings() {
+  replaceActivity(std::make_unique<FsrsSettingsActivity>(renderer, mappedInput));
+}
+
+void ActivityManager::goToAnkiImport(std::string apkgPath) {
+  replaceActivity(std::make_unique<DeckImportActivity>(renderer, mappedInput, std::move(apkgPath), ANKI_STORE,
+                                                       anki::kAnkiMediaDir));
+}
+#endif
 
 void ActivityManager::goToBrowser() {
   const auto& servers = OPDS_STORE.getServers();

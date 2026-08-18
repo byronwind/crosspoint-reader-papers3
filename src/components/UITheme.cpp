@@ -56,13 +56,18 @@ void UITheme::setTheme(CrossPointSettings::UI_THEME type) {
 const ThemeMetrics& UITheme::getMetrics() const {
   // hasTouch() can flip once touch init completes after static construction, so the
   // cached copy is refreshed when the flag differs instead of copying the struct per call.
+  // Virtual buttons (SETTINGS.showVirtualButtons) are drawn as a 40px bar at the bottom
+  // even on touch devices, so buttonHintsHeight is only zeroed when they are hidden —
+  // this keeps activity layouts (action bars, rating bars) clear of the virtual bar.
   const bool touch = gpio.hasTouch();
-  if (!metricsValid || touch != metricsForTouch) {
+  const bool showVirtual = SETTINGS.showVirtualButtons != 0;
+  if (!metricsValid || touch != metricsForTouch || showVirtual != metricsShowVirtual) {
     adjustedMetrics = *currentMetrics;
-    if (touch) {
+    if (touch && !showVirtual) {
       adjustedMetrics.buttonHintsHeight = 0;
     }
     metricsForTouch = touch;
+    metricsShowVirtual = showVirtual;
     metricsValid = true;
   }
   return adjustedMetrics;

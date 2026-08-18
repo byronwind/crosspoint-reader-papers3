@@ -1,0 +1,9 @@
+{
+  "name": "fsrs",
+  "version": "1.0.0",
+  "description": "FSRS V5 spaced repetition scheduling algorithm for AnkiEInk",
+  "build": {
+    "srcDir": "src",
+    "includeDir": "include"
+  }
+}

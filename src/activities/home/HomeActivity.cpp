@@ -28,6 +28,9 @@ int HomeActivity::getMenuItemCount() const {
   if (hasOpdsServers) {
     count++;
   }
+#ifdef ANKIEINK
+  count++;  // Anki Decks
+#endif
   return count;
 }
 
@@ -198,6 +201,11 @@ void HomeActivity::loop() {
       case HomeMenuItem::SETTINGS_MENU:
         onSettingsOpen();
         break;
+#ifdef ANKIEINK
+      case HomeMenuItem::ANKI_DECKS:
+        onAnkiDecksOpen();
+        break;
+#endif
       default:
         break;
     }
@@ -303,6 +311,17 @@ void HomeActivity::render(RenderLock&&) {
     menuIcons.insert(menuIcons.begin() + 2, Library);
   }
 
+#ifdef ANKIEINK
+  // Insert Anki Decks after File Transfer (before Settings). The position must
+  // match indexToMenuItem/menuItemToIndex, which order the menu as:
+  // browse, recents, [opds], transfer, anki, settings.
+  {
+    int ankiPos = hasOpdsServers ? 4 : 3;
+    menuItems.insert(menuItems.begin() + ankiPos, tr(STR_ANKI_DECKS));
+    menuIcons.insert(menuIcons.begin() + ankiPos, Book);
+  }
+#endif
+
   if (metrics.homeContinueReadingInMenu && !recentBooks.empty()) {
     // Insert Continue Reading at the top if enabled in theme
     menuItems.insert(menuItems.begin(), tr(STR_CONTINUE_READING));
@@ -370,3 +389,5 @@ void HomeActivity::onSettingsOpen() { activityManager.goToSettings(); }
 void HomeActivity::onFileTransferOpen() { activityManager.goToFileTransfer(); }
 
 void HomeActivity::onOpdsBrowserOpen() { activityManager.goToBrowser(); }
+
+void HomeActivity::onAnkiDecksOpen() { activityManager.goToAnkiDecks(); }

@@ -36,6 +36,11 @@
 #include "images/LoadingIcon.h"
 #include "util/ButtonNavigator.h"
 #include "util/ScreenshotUtil.h"
+#ifdef ANKIEINK
+#include "DeckStore.h"
+#include "AnkiPaths.h"
+#include "FsrsConfigStore.h"
+#endif
 
 GfxRenderer renderer(display);
 MappedInputManager mappedInputManager(gpio, renderer);
@@ -320,6 +325,14 @@ void setup() {
   I18N.setLanguage(static_cast<Language>(SETTINGS.language));
   KOREADER_STORE.loadFromFile();
   OPDS_STORE.loadFromFile();
+#ifdef ANKIEINK
+  // Open the Anki deck database on the SD card (SdFatVfs is registered inside).
+  if (!ANKI_STORE.init(anki::kAnkiDbPath)) {
+    LOG_ERR("MAIN", "Anki database init failed");
+  }
+  // FSRS parameters live in /.crosspoint/fsrs.json; first boot uses defaults.
+  anki::FsrsConfigStore::getInstance().loadFromFile();
+#endif
   UITheme::getInstance().reload();
   ButtonNavigator::setMappedInputManager(mappedInputManager);
 

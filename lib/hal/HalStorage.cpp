@@ -29,12 +29,6 @@ bool HalStorage::ready() const { return SDCard.ready(); }
 
 // For the rest of the methods, we acquire the mutex to ensure thread safety
 
-class HalStorage::StorageLock {
- public:
-  StorageLock() { xSemaphoreTakeRecursive(HalStorage::getInstance().storageMutex, portMAX_DELAY); }
-  ~StorageLock() { xSemaphoreGiveRecursive(HalStorage::getInstance().storageMutex); }
-};
-
 #define HAL_STORAGE_WRAPPED_CALL(method, ...) \
   HalStorage::StorageLock lock;               \
   return SDCard.method(__VA_ARGS__);
@@ -158,6 +152,7 @@ size_t HalFile::position() const { HAL_FILE_WRAPPED_CALL(position, ); }
 int HalFile::read(void* buf, size_t count) { HAL_FILE_WRAPPED_CALL(read, buf, count); }
 int HalFile::read() { HAL_FILE_WRAPPED_CALL(read, ); }
 size_t HalFile::write(const void* buf, size_t count) { HAL_FILE_WRAPPED_CALL(write, buf, count); }
+size_t HalFile::write(const uint8_t* buf, size_t count) { HAL_FILE_WRAPPED_CALL(write, buf, count); }
 size_t HalFile::write(uint8_t b) { HAL_FILE_WRAPPED_CALL(write, b); }
 bool HalFile::rename(const char* newPath) { HAL_FILE_WRAPPED_CALL(rename, newPath); }
 bool HalFile::isDirectory() const { HAL_FILE_FORWARD_CALL(isDirectory, ); }  // already thread-safe, no need to wrap

@@ -147,6 +147,14 @@ class GfxRenderer {
   // setFallbackFont maps a primary UI font id to an SD font id of the same size.
   void setFallbackFont(int primaryFontId, int fallbackFontId) { fallbackFontMap_[primaryFontId] = fallbackFontId; }
   void clearFallbackFonts() { fallbackFontMap_.clear(); }
+  // Fallback id registered for `primaryFontId` (0 if none). Lets callers route
+  // an entire string through the SD fallback on purpose (e.g. Anki cards that
+  // should render Latin text in the user-selected CJK family as well, not
+  // only the CJK-bearing strings that resolveTextFontId redirects).
+  int getFallbackFontId(int primaryFontId) const {
+    const auto it = fallbackFontMap_.find(primaryFontId);
+    return it == fallbackFontMap_.end() ? 0 : it->second;
+  }
   // Ensure SD card font glyph data is loaded for the given text. Called from layout code
   // (which holds a const GfxRenderer&) before measuring word widths. Safe to call on non-SD fonts (no-op).
   // styleMask: bitmask of styles to prepare (bit 0=regular, 1=bold, 2=italic, 3=bold-italic).

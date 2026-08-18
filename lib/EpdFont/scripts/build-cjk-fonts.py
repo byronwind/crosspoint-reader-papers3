@@ -142,13 +142,22 @@ def main():
         "--sizes", dest="sizes", default=DEFAULT_SIZES,
         help=f"Comma-separated sizes (default: {DEFAULT_SIZES}).")
     parser.add_argument(
-        "--intervals", dest="intervals", default="ascii,latin1,cjk,punctuation",
-        help="Comma-separated interval presets (default: ascii,latin1,cjk,punctuation). "
+        "--intervals", dest="intervals", default="ascii,latin1,ipa-chars,cjk,punctuation",
+        help="Comma-separated interval presets (default: ascii,latin1,ipa-chars,cjk,punctuation). "
         "'ascii'/'latin1' are required: strings containing any CJK codepoint are "
         "rendered ENTIRELY with the SD font (see GfxRenderer::resolveTextFontId), "
         "so the SD font must also cover digits/Latin letters or they vanish in "
-        "Chinese text. 'punctuation' (U+2000-206F) adds the general punctuation "
+        "Chinese text. 'ipa-chars' (U+0250-02FF) covers phonetic symbols like "
+        "[bɪ'riːv] in dictionary cards — Noto Sans/Serif CJK lack those glyphs, "
+        "so they are rasterized from the --fallback-font. 'punctuation' "
+        "(U+2000-206F) adds the general punctuation "
         "Chinese books rely on: curly quotes ‘’ “”, em dash —, ellipsis ….")
+    parser.add_argument(
+        "--fallback-font", dest="fallback_font",
+        default=str(SCRIPT_DIR.parent / "builtinFonts" / "source" / "NotoSans" / "NotoSans-Regular.ttf"),
+        help="Latin font supplying glyphs the CJK face lacks (IPA extensions, "
+        "spacing modifiers). Default: the bundled NotoSans-Regular.ttf; pass an "
+        "empty string to disable.")
     parser.add_argument(
         "--output-dir", dest="output_dir", default=str(DEFAULT_OUTPUT),
         help="Output directory for .cpfont files (default: <scripts>/output).")
@@ -195,6 +204,13 @@ def main():
     ]
     if args.force_autohint:
         cmd.append("--force-autohint")
+    if args.fallback_font:
+        fallback_path = Path(args.fallback_font)
+        if not fallback_path.exists():
+            print(f"WARNING: fallback font not found, continuing without it: {fallback_path}",
+                  file=sys.stderr)
+        else:
+            cmd += ["--fallback-regular", str(fallback_path)]
 
     print(f"\n=== Converting {family_name} (sizes {args.sizes}) ===")
     print(f"  Command: {' '.join(str(c) for c in cmd)}\n")

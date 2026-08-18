@@ -44,6 +44,7 @@ class UITheme {
   mutable ThemeMetrics adjustedMetrics;
   mutable bool metricsValid = false;
   mutable bool metricsForTouch = false;
+  mutable bool metricsShowVirtual = false;
 };
 
 // Helper macro to access current theme

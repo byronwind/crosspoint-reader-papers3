@@ -47,7 +47,13 @@ class HalStorage {
 
   static HalStorage& getInstance() { return instance; }
 
-  class StorageLock;  // private class, used internally
+  // RAII lock serializing all SD card access (SdFat is not thread-safe).
+  // Public so other SD users (e.g. SdFatVfs for SQLite) share the same mutex.
+  class StorageLock {
+   public:
+    StorageLock() { xSemaphoreTakeRecursive(HalStorage::getInstance().storageMutex, portMAX_DELAY); }
+    ~StorageLock() { xSemaphoreGiveRecursive(HalStorage::getInstance().storageMutex); }
+  };
 
  private:
   static HalStorage instance;
@@ -86,6 +92,10 @@ class HalFile : public Print {
   int read(void* buf, size_t count);
   int read();  // read a single byte
   size_t write(const void* buf, size_t count);
+  // Print's default write(const uint8_t*, size_t) writes byte-by-byte, which is
+  // catastrophic for SD card performance (one FAT cache sync per byte). Override
+  // it so callers like ZipFile::readFileToStream get true block writes.
+  size_t write(const uint8_t* buf, size_t count) override;
   size_t write(uint8_t b) override;
   bool rename(const char* newPath);
   bool isDirectory() const;

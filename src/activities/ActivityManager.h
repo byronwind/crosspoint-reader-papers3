@@ -6,6 +6,7 @@
 
 #include <atomic>
 #include <cassert>
+#include <cstdint>
 #include <memory>
 #include <string>
 #include <vector>
@@ -17,7 +18,7 @@
 class Activity;    // forward declaration
 class RenderLock;  // forward declaration
 
-enum class HomeMenuItem { NONE, FILE_BROWSER, RECENTS, OPDS_BROWSER, FILE_TRANSFER, SETTINGS_MENU };
+enum class HomeMenuItem { NONE, FILE_BROWSER, RECENTS, OPDS_BROWSER, FILE_TRANSFER, SETTINGS_MENU, ANKI_DECKS };
 
 /**
  * ActivityManager
@@ -90,6 +91,11 @@ class ActivityManager {
   void goToSleep(bool fromTimeout = false);
   void goToBoot();
   void goToFullScreenMessage(std::string message, EpdFontFamily::Style style = EpdFontFamily::REGULAR);
+  void goToAnkiDecks();
+  void goToAnkiPickApkg();
+  void goToAnkiReview(uint32_t deckId, std::string deckName);
+  void goToAnkiImport(std::string apkgPath);
+  void goToAnkiFsrsSettings();
   void goToCrashReport();
   void goHome(HomeMenuItem initialMenuItem = HomeMenuItem::NONE);
 

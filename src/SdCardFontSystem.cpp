@@ -36,6 +36,17 @@ constexpr UiFontSize kUiFontSizes[] = {
     {UI_12_FONT_ID, 14},
 };
 
+// Anki card fonts: HtmlToEpd picks the nearest of NOTOSANS_12/14/16/18 for the
+// card body, so the same four sizes must get CJK fallback or Chinese card text
+// falls back to the U+FFFD replacement glyph (a "?"-shaped tofu). Sizes shared
+// with kUiFontSizes reuse the already-loaded font.
+constexpr UiFontSize kCardFontSizes[] = {
+    {NOTOSANS_12_FONT_ID, 12},
+    {NOTOSANS_14_FONT_ID, 14},
+    {NOTOSANS_16_FONT_ID, 16},
+    {NOTOSANS_18_FONT_ID, 18},
+};
+
 }  // namespace
 
 void SdCardFontSystem::begin(GfxRenderer& renderer) {
@@ -168,6 +179,17 @@ void SdCardFontSystem::setupUiFallbacks(GfxRenderer& renderer) {
       renderer.setFallbackFont(ui.fontId, sdFontId);
     } else {
       LOG_DBG("SDFS", "No %u pt SD glyphs for UI fallback in %s", ui.pointSize, familyName.c_str());
+    }
+  }
+
+  // Same-size CJK fallbacks for the Anki card fonts, so Chinese card text
+  // renders through the SD family instead of the U+FFFD replacement glyph.
+  for (const auto& card : kCardFontSizes) {
+    const int sdFontId = manager_.loadFamilyExtraSize(*family, renderer, card.pointSize);
+    if (sdFontId != 0) {
+      renderer.setFallbackFont(card.fontId, sdFontId);
+    } else {
+      LOG_DBG("SDFS", "No %u pt SD glyphs for card fallback in %s", card.pointSize, familyName.c_str());
     }
   }
 }

@@ -570,11 +570,29 @@ void LyraTheme::drawEmptyRecents(const GfxRenderer& renderer, const Rect rect) c
 void LyraTheme::drawButtonMenu(GfxRenderer& renderer, Rect rect, int buttonCount, int selectedIndex,
                                const std::function<std::string(int index)>& buttonLabel,
                                const std::function<UIIcon(int index)>& rowIcon) const {
+  const int rowHeight = LyraMetrics::values.menuRowHeight;
+  // Short rects (deck action bar, rating bar) want one horizontal row of
+  // buttons; taller rects (home menu, settings) stack them vertically.
+  // "Can't fit two rows" (rather than one) so a bar taller than a single
+  // menu row still reads as a single-row button strip.
+  const bool singleRow = rect.height < rowHeight * 2;
   for (int i = 0; i < buttonCount; ++i) {
-    int tileWidth = rect.width - LyraMetrics::values.contentSidePadding * 2;
-    Rect tileRect = Rect{rect.x + LyraMetrics::values.contentSidePadding,
-                         rect.y + i * (LyraMetrics::values.menuRowHeight + LyraMetrics::values.menuSpacing), tileWidth,
-                         LyraMetrics::values.menuRowHeight};
+    int tileX = 0;
+    int tileY = 0;
+    int tileWidth = 0;
+    int tileHeight = 0;
+    if (singleRow) {
+      tileWidth = rect.width / buttonCount;
+      tileX = rect.x + tileWidth * i;
+      tileY = rect.y;
+      tileHeight = rect.height;
+    } else {
+      tileWidth = rect.width - LyraMetrics::values.contentSidePadding * 2;
+      tileX = rect.x + LyraMetrics::values.contentSidePadding;
+      tileY = rect.y + i * (rowHeight + LyraMetrics::values.menuSpacing);
+      tileHeight = rowHeight;
+    }
+    Rect tileRect = Rect{tileX, tileY, tileWidth, tileHeight};
 
     const bool selected = selectedIndex == i;
 
@@ -584,10 +602,17 @@ void LyraTheme::drawButtonMenu(GfxRenderer& renderer, Rect rect, int buttonCount
 
     std::string labelStr = buttonLabel(i);
     const char* label = labelStr.c_str();
-    int textX = tileRect.x + 16;
     const int lineHeight = renderer.getLineHeight(UI_12_FONT_ID);
-    const int textY = tileRect.y + (LyraMetrics::values.menuRowHeight - lineHeight) / 2;
+    const int textY = tileRect.y + (tileRect.height - lineHeight) / 2;
 
+    if (singleRow) {
+      const int textWidth = renderer.getTextWidth(UI_12_FONT_ID, label);
+      const int textX = tileRect.x + (tileRect.width - textWidth) / 2;
+      renderer.drawText(UI_12_FONT_ID, textX, textY, label, true);
+      continue;
+    }
+
+    int textX = tileRect.x + 16;
     if (rowIcon != nullptr) {
       UIIcon icon = rowIcon(i);
       const uint8_t* iconBitmap = iconForName(icon, mainMenuIconSize);

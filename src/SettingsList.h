@@ -18,6 +18,10 @@
 #include "activities/settings/SettingsActivity.h"
 #include "util/DictionaryRegistry.h"
 
+#ifdef ANKIEINK
+#include "FsrsConfigStore.h"
+#endif
+
 // Build the font family setting dynamically. When registry is non-null, SD card fonts
 // are appended after the built-in fonts. Otherwise only built-in fonts are listed.
 inline SettingInfo buildFontFamilySetting(const SdCardFontRegistry* registry) {
@@ -177,6 +181,77 @@ inline SettingInfo buildDictionarySetting(const std::vector<DictionaryEntry>& di
 
   return s;
 }
+
+#ifdef ANKIEINK
+// FSRS scheduling parameters live in anki::FsrsConfigStore, not
+// CrossPointSettings, so each entry gets dynamic accessors. The category is
+// STR_ANKI_FSRS_TITLE: the web settings page groups by it, while the device
+// settings tabs only know Display/Reader/Controls/System, so these stay
+// web-only (the device edits them via FsrsSettingsActivity).
+inline void appendAnkiSettings(std::vector<SettingInfo>& v) {
+  constexpr StrId kCategory = StrId::STR_ANKI_FSRS_TITLE;
+
+  // Retention is persisted as a float in [0.70, 0.99]; the web API exposes
+  // it as an integer percentage.
+  v.push_back(SettingInfo::DynamicValue(
+      StrId::STR_ANKI_FSRS_RETENTION, {70, 99, 1},
+      [] { return static_cast<int>(anki::FsrsConfigStore::getInstance().get().requestRetention * 100.0f + 0.5f); },
+      [](int percent) {
+        auto cfg = anki::FsrsConfigStore::getInstance().get();
+        cfg.requestRetention = std::clamp(percent, 70, 99) / 100.0f;
+        anki::FsrsConfigStore::getInstance().set(cfg);
+      },
+      "ankiRetention", kCategory));
+
+  v.push_back(SettingInfo::DynamicValue(
+      StrId::STR_ANKI_FSRS_NEW_LIMIT, {0, 999, 1},
+      [] { return static_cast<int>(anki::FsrsConfigStore::getInstance().get().dailyNewLimit); },
+      [](int val) {
+        auto cfg = anki::FsrsConfigStore::getInstance().get();
+        cfg.dailyNewLimit = static_cast<uint16_t>(std::clamp(val, 0, 999));
+        anki::FsrsConfigStore::getInstance().set(cfg);
+      },
+      "ankiDailyNewLimit", kCategory));
+
+  v.push_back(SettingInfo::DynamicValue(
+      StrId::STR_ANKI_FSRS_REVIEW_LIMIT, {0, 999, 1},
+      [] { return static_cast<int>(anki::FsrsConfigStore::getInstance().get().dailyReviewLimit); },
+      [](int val) {
+        auto cfg = anki::FsrsConfigStore::getInstance().get();
+        cfg.dailyReviewLimit = static_cast<uint16_t>(std::clamp(val, 0, 999));
+        anki::FsrsConfigStore::getInstance().set(cfg);
+      },
+      "ankiDailyReviewLimit", kCategory));
+
+  v.push_back(SettingInfo::DynamicValue(
+      StrId::STR_ANKI_FSRS_MAX_INTERVAL, {1, 36500, 10},
+      [] { return static_cast<int>(anki::FsrsConfigStore::getInstance().get().maximumInterval); },
+      [](int val) {
+        auto cfg = anki::FsrsConfigStore::getInstance().get();
+        cfg.maximumInterval = static_cast<uint32_t>(std::clamp(val, 1, 36500));
+        anki::FsrsConfigStore::getInstance().set(cfg);
+      },
+      "ankiMaximumInterval", kCategory));
+
+  // Learning steps are preset ladders; labels match FsrsSettingsActivity's
+  // "1m 10m" / "1m 6m 10m" display.
+  SettingInfo learnSteps;
+  learnSteps.nameId = StrId::STR_ANKI_FSRS_LEARN_STEPS;
+  learnSteps.type = SettingType::ENUM;
+  learnSteps.enumStringValues = {"1m 10m", "1m 6m 10m"};
+  learnSteps.key = "ankiLearnSteps";
+  learnSteps.category = kCategory;
+  learnSteps.valueGetter = [] {
+    return anki::FsrsConfigStore::getInstance().get().learnStepCount >= 3 ? 1 : 0;
+  };
+  learnSteps.valueSetter = [](int idx) {
+    auto cfg = anki::FsrsConfigStore::getInstance().get();
+    cfg.setLearnStepPreset(idx >= 1 ? 3 : 2);
+    anki::FsrsConfigStore::getInstance().set(cfg);
+  };
+  v.push_back(std::move(learnSteps));
+}
+#endif  // ANKIEINK
 
 // Shared settings list used by both the device settings UI and the web settings API.
 // Each entry has a key (for JSON API) and category (for grouping).
@@ -457,5 +532,8 @@ inline std::vector<SettingInfo> getSettingsList(const SdCardFontRegistry* regist
         std::find_if(v.begin(), v.end(), [](const SettingInfo& s) { return s.category == StrId::STR_CAT_CONTROLS; });
     v.insert(it, buildDictionarySetting(*dictionaries));
   }
+#ifdef ANKIEINK
+  appendAnkiSettings(v);
+#endif
   return v;
 }

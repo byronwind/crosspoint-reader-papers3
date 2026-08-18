@@ -4,6 +4,9 @@
 #include <InflateStream.h>
 #include <Logging.h>
 
+#include <freertos/FreeRTOS.h>
+#include <freertos/task.h>
+
 #include <algorithm>
 
 struct ZipInflateCtx {
@@ -512,6 +515,7 @@ bool ZipFile::readFileToStream(const char* filename, Print& out, const size_t ch
 
     bool success = false;
     size_t totalProduced = 0;
+    uint32_t writeCount = 0;
 
     while (true) {
       size_t produced;
@@ -532,6 +536,11 @@ bool ZipFile::readFileToStream(const char* filename, Print& out, const size_t ch
             LOG_ERR("ZIP", "Failed to write all output bytes to stream");
           }
           break;
+        }
+        // Yield every ~16 chunks (64 KB at the default 4 KB chunk) so the idle
+        // task can feed the watchdog on long extractions (e.g. APKG media).
+        if ((++writeCount & 15) == 0) {
+          vTaskDelay(1);
         }
       }
 

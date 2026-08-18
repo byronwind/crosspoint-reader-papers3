@@ -1,0 +1,14 @@
+{
+  "name": "anki",
+  "version": "1.0.0",
+  "description": "APKG parser, deck store, and HTML-to-Epd renderer for AnkiEInk",
+  "build": {
+    "srcDir": "src",
+    "includeDir": "include"
+  },
+  "dependencies": {
+    "fsrs": "*",
+    "hal": "*",
+    "ZipFile": "*"
+  }
+}
