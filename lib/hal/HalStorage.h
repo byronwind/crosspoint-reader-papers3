@@ -91,11 +91,11 @@ class HalFile : public Print {
   size_t position() const;
   int read(void* buf, size_t count);
   int read();  // read a single byte
-  size_t write(const void* buf, size_t count);
   // Print's default write(const uint8_t*, size_t) writes byte-by-byte, which is
   // catastrophic for SD card performance (one FAT cache sync per byte). Override
   // it so callers like ZipFile::readFileToStream get true block writes.
   size_t write(const uint8_t* buf, size_t count) override;
+  size_t write(const void* buf, size_t count);
   size_t write(uint8_t b) override;
   bool rename(const char* newPath);
   bool isDirectory() const;

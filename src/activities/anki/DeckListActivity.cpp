@@ -3,6 +3,7 @@
 #ifdef ANKIEINK
 
 #include "DeckListActivity.h"
+#include "ListTouch.h"
 
 #include <GfxRenderer.h>
 #include <I18n.h>
@@ -70,13 +71,13 @@ void DeckListActivity::loop() {
                             metrics.verticalSpacing * 2 - kActionBarHeight - metrics.verticalSpacing;
 
   if (itemCount > 0) {
-    switch (handleListTouch(selectedIndex, itemCount, contentTop, contentHeight, true)) {
-      case ListTouchResult::Activated:
+    switch (anki_list_touch::handle(*this, mappedInput, selectedIndex, itemCount, contentTop, contentHeight, true)) {
+      case anki_list_touch::Result::Activated:
         activateSelected();
         return;
-      case ListTouchResult::Consumed:
+      case anki_list_touch::Result::Consumed:
         return;
-      case ListTouchResult::None:
+      case anki_list_touch::Result::None:
         break;
     }
 
